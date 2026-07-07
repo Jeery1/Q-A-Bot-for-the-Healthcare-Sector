@@ -1,0 +1,104 @@
+@startuml
+title 船舶建造安全低延迟语音问答系统架构
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Microsoft YaHei
+skinparam rectangle {
+  BorderColor #2F4F6F
+  RoundCorner 12
+}
+skinparam component {
+  BorderColor #2F4F6F
+}
+skinparam database {
+  BorderColor #2F4F6F
+}
+
+actor "用户" as user
+
+rectangle "浏览器前端\nfrontend/index.html" as frontend #EAF4FF {
+  component "录音控制\nMediaRecorder/AudioContext" as recorder
+  component "模式切换\nW1 / W2 / W3" as mode
+  component "实时展示与播放\nASR partial / LLM token / TTS audio" as player
+}
+
+rectangle "FastAPI 服务端\nbackend/main.py" as server #F6FBFF {
+  component "WebSocket /ws?mode=..." as websocket
+  component "Pipeline Router\npipelines/factory.py" as router
+}
+
+rectangle "三条级联管线" as pipelines #FFF7E8 {
+  component "W1 串行基线\n完整 ASR -> 完整 LLM -> 完整 TTS" as w1
+  component "W2 全流式低延迟\n流式 ASR -> 流式 LLM -> 句级 TTS" as w2
+  component "W3 安全流式\nW2 + 安全门控短路" as w3
+}
+
+rectangle "在线模型与领域适配" as ai #EEF9F1 {
+  component "Azure Speech ASR\nstreaming/asr_azure.py" as asr
+  component "DeepSeek LLM API\nstreaming/llm_api.py" as llm
+  component "Azure Speech TTS\nstreaming/tts_azure.py" as tts
+  database "领域问答语料\ndata/shipbuilding_dialogues.json" as data
+  component "领域检索增强\nbackend/domain_knowledge.py" as rag
+}
+
+rectangle "安全门控" as safety #FFF0F0 {
+  component "LLM 安全分类\nsafe / sensitive / out_of_domain" as classifier
+  component "本地关键词兜底\nAPI 失败时仍可拦截" as fallback
+  component "固定安全提示\n不调用主回答链路" as safe_response
+}
+
+rectangle "实验评测" as eval #F4F0FF {
+  component "固定测试清单\nbackend/test_manifest.json" as manifest
+  component "延迟与安全实验\nbackend/experiment.py" as experiment
+  component "指标\n首段延迟 / 总延迟 / ASR召回 / 安全准确率" as metrics
+}
+
+user --> recorder : 按住说话
+recorder --> websocket : PCM 音频块 / audio_end
+mode --> websocket : 选择 w1/w2/w3
+websocket --> router : mode 路由
+router --> w1
+router --> w2
+router --> w3
+
+w1 --> asr : 一次性识别
+w1 --> llm : 非流式回答
+w1 --> tts : 完整合成
+
+w2 --> asr : partial + final
+w2 --> llm : stream=True token
+w2 --> tts : 句级合成
+
+w3 --> asr
+w3 --> classifier : ASR final 后安全判断
+classifier --> fallback : API 不可用/异常
+classifier --> safe_response : 不安全/越界
+classifier --> llm : 安全问题继续回答
+
+data --> rag
+rag --> llm : 注入领域参考问答
+tts --> player : tts_chunk / audio
+llm --> player : llm_token / answer
+asr --> player : asr_partial / asr_final
+safe_response --> player : 拒绝回答 + 安全提示音频
+
+manifest --> experiment
+experiment --> router : 批量运行 w1/w2/w3
+experiment --> metrics
+
+note right of w2
+核心低延迟改进：
+1. 流式 ASR
+2. 流式 LLM
+3. 句级切分
+4. 首句优先 TTS
+end note
+
+note right of w3
+安全扩展：
+危险/越界问题短路，
+避免进入主 LLM 回答链路。
+end note
+
+@enduml
