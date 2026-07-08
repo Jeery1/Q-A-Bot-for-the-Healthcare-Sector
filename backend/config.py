@@ -18,7 +18,7 @@ TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 # RAG
 RAG_ENABLED = os.getenv("RAG_ENABLED", "true").lower() == "true"
 RAG_PERSIST_DIR = os.getenv("RAG_PERSIST_DIR", str(BASE_DIR / "data" / "healthcare_rag"))
-RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "shibing624/text2vec-base-chinese")
+RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "models/text2vec-base-chinese")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "3"))
 
 # Server

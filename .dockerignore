@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.git/
+.gitattributes
+.gitignore
+
+# Env files (keep out of image — passed at runtime)
+.env
+*.env
+
+# OS / IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Data (mount as volume)
+data/
+
+# Docker
+Dockerfile
+.dockerignore

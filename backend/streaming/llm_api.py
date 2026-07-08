@@ -77,9 +77,9 @@ class StreamingLLM:
             "遇到超出医疗健康范围的问题或危险违规请求，应礼貌拒绝并引导到合规方向。"
         )
 
-    def _build_messages(self, prompt: str) -> list[dict]:
+    async def _build_messages(self, prompt: str) -> list[dict]:
         system_content = self.system_prompt
-        rag_context = self._build_rag_context(prompt)
+        rag_context = await self._build_rag_context(prompt)
         if rag_context:
             system_content += "\n\n以下为医疗知识库中检索到的相关参考信息，请参考这些信息回答问题：\n" + rag_context
         return [
@@ -87,13 +87,15 @@ class StreamingLLM:
             {"role": "user", "content": prompt},
         ]
 
-    def _build_rag_context(self, prompt: str) -> str:
+    async def _build_rag_context(self, prompt: str) -> str:
         self._last_rag_docs = []
         if not self.retriever or not self.retriever.is_ready():
             logger.debug(f"[RAG] retriever not ready, skipping")
             return ""
         try:
-            docs = self.retriever.retrieve(prompt, top_k=self.rag_top_k)
+            docs = await asyncio.to_thread(
+                self.retriever.retrieve, prompt, top_k=self.rag_top_k
+            )
             self._last_rag_docs = docs
             if not docs:
                 logger.info(f"[RAG] query={prompt!r} => 0 results")
@@ -123,7 +125,7 @@ class StreamingLLM:
         }
         payload = {
             "model": self.model,
-            "messages": self._build_messages(prompt),
+            "messages": await self._build_messages(prompt),
             "stream": True,
             "max_tokens": 512,
             "temperature": 0.7,
@@ -174,7 +176,7 @@ class StreamingLLM:
         }
         payload = {
             "model": self.model,
-            "messages": self._build_messages(prompt),
+            "messages": await self._build_messages(prompt),
             "stream": False,
             "max_tokens": 512,
             "temperature": 0.7,

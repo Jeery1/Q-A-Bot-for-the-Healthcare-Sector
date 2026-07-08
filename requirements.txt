@@ -5,4 +5,3 @@ httpx
 python-dotenv
 chromadb
 sentence-transformers
-datasets
