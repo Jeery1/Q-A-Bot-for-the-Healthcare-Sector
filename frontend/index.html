@@ -98,9 +98,9 @@ body{
 .msg.llm-token .bot-label{font-size:10px;color:#94a3b8;margin-bottom:2px;display:block}
 .msg-play-btn{
   position:absolute;bottom:1px;right:4px;
-  width:22px;height:22px;border-radius:50%;
+  width:32px;height:32px;border-radius:50%;
   border:1.5px solid #99f6e4;background:#f0fdfa;color:#0d9488;
-  font-size:10px;cursor:pointer;display:flex;
+  font-size:16px;cursor:pointer;display:flex;
   align-items:center;justify-content:center;
   user-select:none;-webkit-user-select:none;
   opacity:.7;transition:opacity .15s;z-index:1;
@@ -124,6 +124,27 @@ body{
   border-top:1px solid #e8f4f8;
   background:linear-gradient(0deg,#f8fdfe,transparent);
 }
+
+.text-input-bar{
+  display:flex;gap:8px;padding:8px 16px 0;
+}
+.text-input-bar input{
+  flex:1;padding:10px 14px;border-radius:12px;
+  border:1px solid #d1e7e0;background:#f8fdfe;
+  color:#334155;font-size:13px;outline:none;
+  font-family:inherit;transition:border-color .2s;
+}
+.text-input-bar input:focus{border-color:#5eead4}
+.text-input-bar input::placeholder{color:#cbd5e1}
+.text-input-bar button{
+  padding:10px 16px;border-radius:12px;border:none;
+  background:linear-gradient(135deg,#14b8a6,#0d9488);
+  color:#fff;font-size:13px;cursor:pointer;
+  white-space:nowrap;transition:opacity .2s;
+  font-family:inherit;
+}
+.text-input-bar button:hover{opacity:.85}
+.text-input-bar button:disabled{opacity:.4;cursor:not-allowed}
 
 .record-btn{
   width:64px;height:64px;border-radius:50%;
@@ -246,6 +267,12 @@ body{
     </div>
   </div>
 
+  <div class="text-input-bar">
+    <input type="text" v-model="inputText" placeholder="输入健康问题或使用语音输入…"
+           @keyup.enter="sendText" :disabled="status==='processing'" />
+    <button @click="sendText" :disabled="status==='processing' || !inputText.trim()">发送</button>
+  </div>
+
   <div class="bottom-bar">
     <div class="audio-controls">
       <div class="record-btn"
@@ -277,6 +304,7 @@ createApp({
     const isRecording = ref(false);
     const audioPaused = ref(false);
     const audioPlaying = ref(false);
+    const inputText = ref('');
 
     const modes = [
       {key:'w2',label:'W2 全流式'},
@@ -289,8 +317,23 @@ createApp({
     let ws = null, audioCtx = null, source = null, processor = null, stream = null;
     let audioQueue = [], currentAudio = null;
     let tmpMsgIdx = -1;
+    let reconnectTimer = null, reconnectCount = 0;
+
+    function clearReconnect(){
+      if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
+    }
+
+    function scheduleReconnect(){
+      clearReconnect();
+      reconnectCount++;
+      const base = Math.min(1000 * Math.pow(2, reconnectCount-1), 16000);
+      const delay = Math.floor(base * (0.5 + Math.random() * 0.5));
+      setStatus(`重连中(${reconnectCount})…`,'disconnected');
+      reconnectTimer = setTimeout(() => connect(wsMode.value), delay);
+    }
 
     function setStatus(t,c){
+      status.value = c;
       statusText.value = t;
       statusClass.value = c;
     }
@@ -307,13 +350,14 @@ createApp({
     }
 
     function connect(m){
-      if(ws){ ws.close(); ws=null; }
+      clearReconnect();
+      if(ws){ try{ws.close()}catch(e){}; ws = null; }
       wsMode.value = m;
-      ws = new WebSocket(`ws://${location.host}/ws?mode=${m}`);
-      ws.onopen = () => setStatus('就绪','idle');
-      ws.onclose = () => setStatus('连接断开','disconnected');
-      ws.onmessage = onMsg;
-      ws.onerror = () => setStatus('连接错误','disconnected');
+      const socket = ws = new WebSocket(`ws://${location.host}/ws?mode=${m}`);
+      socket.onopen = () => { reconnectCount = 0; setStatus('就绪','idle'); };
+      socket.onclose = () => { if(ws !== socket) return; scheduleReconnect(); };
+      socket.onmessage = onMsg;
+      socket.onerror = () => {};
     }
 
     function onMsg(e){
@@ -388,8 +432,16 @@ createApp({
       }
     }
 
+    function sendText(){
+      const t = inputText.value.trim();
+      if(!t || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({type:'text_query',text:t}));
+      inputText.value = '';
+      setStatus('处理中…','processing');
+    }
+
     async function startRec(){
-      if(status.value === 'processing') return;
+      if(!ws || ws.readyState !== WebSocket.OPEN) return;
       try{
         stream = await navigator.mediaDevices.getUserMedia({
           audio:{sampleRate:16000,channelCount:1}
@@ -452,6 +504,7 @@ createApp({
     return {
       chatRef, messages, status, wsMode, isRecording,
       audioPaused, audioPlaying, togglePause,
+      inputText, sendText,
       modes, statusText, statusClass,
       startRec, stopRec, stopRecIfRecording, switchMode,
     };

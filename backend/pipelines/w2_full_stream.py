@@ -50,7 +50,6 @@ class W2FullStreaming(BasePipeline):
         t_start = time.perf_counter()
         asr_text = ""
 
-        # 并行预热：ASR 进行时预连 LLM API
         warmup_task = asyncio.create_task(self._warmup_llm())
 
         async def _audio_gen():
@@ -70,8 +69,25 @@ class W2FullStreaming(BasePipeline):
             await ws.send_json({"error": "未识别到语音"})
             return PipelineResult(error="未识别到语音", timings=t)
 
-        await warmup_task  # 确保预热完成
+        await warmup_task
+        return await self._stream_llm_tts(asr_text, ws, t, t_start)
 
+    async def run_text(self, text: str, ws):
+        t = TimingMetrics()
+        t_start = time.perf_counter()
+
+        if not text.strip():
+            await ws.send_json({"error": "输入为空"})
+            return PipelineResult(error="输入为空", timings=t)
+
+        logger.info(f"[W2-text] input={text!r}")
+        await ws.send_json({"type": "asr_final", "text": text})
+        await self._warmup_llm()
+        return await self._stream_llm_tts(text, ws, t, t_start)
+
+    # ── LLM + TTS 公共逻辑 ──────────────────────────────
+
+    async def _stream_llm_tts(self, asr_text: str, ws, t: TimingMetrics, t_start: float):
         sentence_queue = asyncio.Queue()
         output_queue = asyncio.Queue()
         seq_counter = 0
@@ -175,7 +191,6 @@ class W2FullStreaming(BasePipeline):
 
         logger.info(f"[W2] LLM done: {token_count} tokens, {sentence_count} sentences, full={full_answer!r}")
 
-        # 兜底发送剩余文本
         for sent in splitter.flush():
             sentence_count += 1
             await sentence_queue.put(sent)

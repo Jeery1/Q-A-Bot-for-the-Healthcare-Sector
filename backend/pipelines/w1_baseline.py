@@ -81,3 +81,37 @@ class W1Baseline(BasePipeline):
 
         return PipelineResult(asr_text=asr_text, answer_text=answer_text,
                               tts_audio=tts_audio, timings=t)
+
+    async def run_text(self, text: str, ws):
+        t = TimingMetrics()
+        t_start = time.perf_counter()
+
+        if not text.strip():
+            await ws.send_json({"error": "输入为空"})
+            return PipelineResult(error="输入为空", timings=t)
+
+        logger.info(f"[W1-text] input={text!r}")
+        await ws.send_json({"type": "asr_final", "text": text})
+
+        answer_text = await self.llm.generate_once(text)
+        t.llm = time.perf_counter() - t_start
+        if self.llm._last_rag_docs:
+            await ws.send_json({"type": "rag_info", "docs": self.llm._last_rag_docs})
+        await ws.send_json({"type": "answer", "text": answer_text})
+
+        tts_audio = await self.tts.synthesize_once(answer_text)
+        t.tts = time.perf_counter() - t_start - t.llm
+        audio_b64 = base64.b64encode(tts_audio).decode()
+        await ws.send_json({"type": "audio", "data": audio_b64,
+                            "timings": {"asr": 0, "llm": round(t.llm, 2),
+                                        "tts": round(t.tts, 2),
+                                        "total": round(time.perf_counter() - t_start, 2)}})
+
+        t.asr = 0
+        t.total = time.perf_counter() - t_start
+        t.first_audio = t.total
+
+        logger.info(f"[W1-text] llm={t.llm:.2f}s  tts={t.tts:.2f}s  total={t.total:.2f}s")
+
+        return PipelineResult(asr_text=text, answer_text=answer_text,
+                              tts_audio=tts_audio, timings=t)

@@ -43,3 +43,10 @@ class BasePipeline:
         Returns the final PipelineResult.
         """
         raise NotImplementedError
+
+    async def run_text(self, text: str, ws):
+        """
+        Text input: skip ASR, send text directly to LLM + TTS pipeline.
+        Returns the final PipelineResult.
+        """
+        raise NotImplementedError

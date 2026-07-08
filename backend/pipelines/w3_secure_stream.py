@@ -70,8 +70,24 @@ class W3SecureStreaming(BasePipeline):
             return PipelineResult(error="未识别到语音", timings=t)
 
         await warmup_task
+        return await self._safety_check_llm_tts(asr_text, ws, t, t_start)
 
-        # ── 安全门控 ───────────────────────────────────
+    async def run_text(self, text: str, ws):
+        t = TimingMetrics()
+        t_start = time.perf_counter()
+
+        if not text.strip():
+            await ws.send_json({"error": "输入为空"})
+            return PipelineResult(error="输入为空", timings=t)
+
+        logger.info(f"[W3-text] input={text!r}")
+        await ws.send_json({"type": "asr_final", "text": text})
+        await self._warmup_llm()
+        return await self._safety_check_llm_tts(text, ws, t, t_start)
+
+    # ── 安全门控 + LLM + TTS ────────────────────────────
+
+    async def _safety_check_llm_tts(self, asr_text: str, ws, t: TimingMetrics, t_start: float):
         safety = await self.llm.classify_safety(asr_text)
         is_safe = safety.get("safe", True)
         logger.info(f"[W3] safety check: safe={is_safe} reason={safety.get('reason')} "

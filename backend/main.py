@@ -65,7 +65,30 @@ async def websocket_endpoint(ws: WebSocket, mode: str = Query("w1")):
 
     try:
         while True:
-            await pipeline.run_stream(_iter_audio_chunks(ws), ws)
+            # peek the next message to check if it's a text query
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if "text" in msg:
+                data = json.loads(msg["text"])
+                if data.get("type") == "text_query":
+                    text = data.get("text", "").strip()
+                    if text:
+                        await pipeline.run_text(text, ws)
+                    continue
+                # it's audio_end — feed to audio iterator
+                async def _single(msg=msg):
+                    if "text" in msg:
+                        yield (b"", True)
+                    elif "bytes" in msg:
+                        yield (msg["bytes"], False)
+                await pipeline.run_stream(_single(), ws)
+            elif "bytes" in msg:
+                async def _audio_iter():
+                    yield (msg["bytes"], False)
+                    async for chunk in _iter_audio_chunks(ws):
+                        yield chunk
+                await pipeline.run_stream(_audio_iter(), ws)
 
     except (WebSocketDisconnect, RuntimeError):
         pass
